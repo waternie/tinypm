@@ -1,9 +1,11 @@
 """TinyPM 后端应用入口。"""
 
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 
 from app.config import settings
@@ -34,6 +36,10 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(members.router)
 app.include_router(projects.router)
+Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+Path(settings.DOCUMENTS_DIR).mkdir(parents=True, exist_ok=True)
+app.mount("/api/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+app.mount("/api/documents-storage", StaticFiles(directory=settings.DOCUMENTS_DIR), name="documents")
 
 
 @app.on_event("startup")
@@ -111,6 +117,38 @@ def _ensure_project_schema() -> None:
         statements.append(
             "ALTER TABLE projects ADD COLUMN IF NOT EXISTS announcement_markdown TEXT"
         )
+    if "docs_repo_url" not in column_names:
+        statements.append(
+            "ALTER TABLE projects ADD COLUMN IF NOT EXISTS docs_repo_url VARCHAR(512)"
+        )
+    if "docs_repo_branch" not in column_names:
+        statements.append(
+            "ALTER TABLE projects ADD COLUMN IF NOT EXISTS docs_repo_branch VARCHAR(128)"
+        )
+    if "docs_repo_subpath" not in column_names:
+        statements.append(
+            "ALTER TABLE projects ADD COLUMN IF NOT EXISTS docs_repo_subpath VARCHAR(255)"
+        )
+    if "docs_last_synced_at" not in column_names:
+        statements.append(
+            "ALTER TABLE projects ADD COLUMN IF NOT EXISTS docs_last_synced_at TIMESTAMPTZ"
+        )
+    if "docs_sync_status" not in column_names:
+        statements.append(
+            "ALTER TABLE projects ADD COLUMN IF NOT EXISTS docs_sync_status VARCHAR(32)"
+        )
+    if "docs_sync_message" not in column_names:
+        statements.append(
+            "ALTER TABLE projects ADD COLUMN IF NOT EXISTS docs_sync_message TEXT"
+        )
+    if "project_document_files" in inspector.get_table_names():
+        document_column_names = {
+            column["name"] for column in inspector.get_columns("project_document_files")
+        }
+        if "directory" not in document_column_names:
+            statements.append(
+                "ALTER TABLE project_document_files ADD COLUMN IF NOT EXISTS directory VARCHAR(255)"
+            )
 
     if "project_cost_records" in inspector.get_table_names():
         cost_column_names = {

@@ -1,6 +1,6 @@
 # TinyPM
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](./README.en.md)
+[![Version](https://img.shields.io/badge/version-1.0.1-blue)](./README.en.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 [![Open Source](https://img.shields.io/badge/Open%20Source-Yes-1f6feb)](./LICENSE)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/)
@@ -10,7 +10,7 @@ TinyPM is a lightweight, self-hosted project management platform built for small
 
 It combines role-based access control, a reusable member library, Markdown-powered project announcements, and practical project execution modules such as milestones, plans, requirements, issues, and cost records.
 
-Current version: `1.0.0`
+Current version: `1.0.1`
 
 - Chinese README: [README.md](./README.md)
 

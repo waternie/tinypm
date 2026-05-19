@@ -17,6 +17,12 @@ class Project(Base):
     priority = Column(String(8), nullable=False, default="中", comment="项目优先级")
     description = Column(Text, nullable=True, comment="项目描述")
     announcement_markdown = Column(Text, nullable=True, comment="项目公告Markdown内容")
+    docs_repo_url = Column(String(512), nullable=True, comment="文档仓库地址")
+    docs_repo_branch = Column(String(128), nullable=True, comment="文档仓库分支")
+    docs_repo_subpath = Column(String(255), nullable=True, comment="文档子目录")
+    docs_last_synced_at = Column(DateTime(timezone=True), nullable=True, comment="文档最后同步时间")
+    docs_sync_status = Column(String(32), nullable=True, comment="文档同步状态")
+    docs_sync_message = Column(Text, nullable=True, comment="文档同步消息")
     project_manager = Column(String(64), nullable=True, comment="项目负责人")
     client_name = Column(String(128), nullable=True, comment="客户名称")
     git_url = Column(String(512), nullable=True, comment="Git仓库链接")
@@ -63,6 +69,12 @@ class Project(Base):
     )
     cost_records = relationship(
         "ProjectCostRecord",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    documents = relationship(
+        "ProjectDocumentFile",
         back_populates="project",
         cascade="all, delete-orphan",
         lazy="selectin",
@@ -225,10 +237,46 @@ class ProjectIssue(Base):
     )
 
     project = relationship("Project", back_populates="issues")
+    images = relationship(
+        "ProjectIssueImage",
+        back_populates="issue",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
     def __repr__(self) -> str:
         """返回调试信息。"""
         return f"<ProjectIssue(id={self.id}, title='{self.title}')>"
+
+
+class ProjectIssueImage(Base):
+    """问题图片。"""
+
+    __tablename__ = "project_issue_images"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="问题图片ID")
+    issue_id = Column(
+        Integer,
+        ForeignKey("project_issues.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="关联问题ID",
+    )
+    file_name = Column(String(255), nullable=False, comment="存储文件名")
+    original_name = Column(String(255), nullable=False, comment="原始文件名")
+    file_path = Column(String(512), nullable=False, comment="文件相对路径")
+    content_type = Column(String(128), nullable=True, comment="文件类型")
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        comment="创建时间",
+    )
+
+    issue = relationship("ProjectIssue", back_populates="images")
+
+    def __repr__(self) -> str:
+        """返回调试信息。"""
+        return f"<ProjectIssueImage(id={self.id}, issue_id={self.issue_id}, file_name='{self.file_name}')>"
 
 
 class ProjectCostRecord(Base):
@@ -271,4 +319,46 @@ class ProjectCostRecord(Base):
         return (
             f"<ProjectCostRecord(id={self.id}, project_id={self.project_id}, "
             f"type='{self.record_type}', amount={self.amount})>"
+        )
+
+
+class ProjectDocumentFile(Base):
+    """项目文档文件。"""
+
+    __tablename__ = "project_document_files"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="项目文档ID")
+    project_id = Column(
+        Integer,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="关联项目ID",
+    )
+    file_name = Column(String(255), nullable=False, comment="存储文件名")
+    original_name = Column(String(255), nullable=False, comment="原始文件名")
+    directory = Column(String(255), nullable=True, comment="所属目录")
+    file_path = Column(String(512), nullable=False, comment="文件相对路径")
+    content_type = Column(String(128), nullable=True, comment="文件类型")
+    file_size = Column(Integer, nullable=False, default=0, comment="文件大小")
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        comment="创建时间",
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+        comment="更新时间",
+    )
+
+    project = relationship("Project", back_populates="documents")
+
+    def __repr__(self) -> str:
+        """返回调试信息。"""
+        return (
+            f"<ProjectDocumentFile(id={self.id}, project_id={self.project_id}, "
+            f"file_name='{self.file_name}')>"
         )

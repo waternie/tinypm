@@ -22,6 +22,9 @@ class ProjectCreate(BaseModel):
     priority: str = Field(default="中", description="优先级")
     description: str | None = Field(None, description="项目描述")
     announcement_markdown: str | None = Field(None, description="项目公告Markdown")
+    docs_repo_url: str | None = Field(None, max_length=512, description="文档仓库地址")
+    docs_repo_branch: str | None = Field(None, max_length=128, description="文档仓库分支")
+    docs_repo_subpath: str | None = Field(None, max_length=255, description="文档子目录")
     project_manager: str | None = Field(None, max_length=64, description="项目负责人")
     client_name: str | None = Field(None, max_length=128, description="客户名称")
     git_url: str | None = Field(None, max_length=512, description="Git仓库链接")
@@ -44,6 +47,9 @@ class ProjectUpdate(BaseModel):
     priority: str | None = Field(None, description="优先级")
     description: str | None = Field(None, description="项目描述")
     announcement_markdown: str | None = Field(None, description="项目公告Markdown")
+    docs_repo_url: str | None = Field(None, max_length=512, description="文档仓库地址")
+    docs_repo_branch: str | None = Field(None, max_length=128, description="文档仓库分支")
+    docs_repo_subpath: str | None = Field(None, max_length=255, description="文档子目录")
     project_manager: str | None = Field(None, max_length=64, description="项目负责人")
     client_name: str | None = Field(None, max_length=128, description="客户名称")
     git_url: str | None = Field(None, max_length=512, description="Git仓库链接")
@@ -67,6 +73,12 @@ class ProjectResponse(BaseModel):
     priority: str
     description: str | None = None
     announcement_markdown: str | None = None
+    docs_repo_url: str | None = None
+    docs_repo_branch: str | None = None
+    docs_repo_subpath: str | None = None
+    docs_last_synced_at: datetime | None = None
+    docs_sync_status: str | None = None
+    docs_sync_message: str | None = None
     project_manager: str | None = None
     client_name: str | None = None
     git_url: str | None = None
@@ -252,8 +264,27 @@ class IssueResponse(BaseModel):
     status: str
     assignee: str | None = None
     resolution: str | None = None
+    images: list["IssueImageResponse"] = Field(default_factory=list, description="问题图片")
     created_at: datetime
     updated_at: datetime
+
+    class Config:
+        """Pydantic 配置。"""
+
+        from_attributes = True
+
+
+class IssueImageResponse(BaseModel):
+    """问题图片响应体。"""
+
+    id: int
+    issue_id: int
+    file_name: str
+    original_name: str
+    file_path: str
+    image_url: str
+    content_type: str | None = None
+    created_at: datetime
 
     class Config:
         """Pydantic 配置。"""
@@ -335,3 +366,25 @@ class CostRecordListResponse(BaseModel):
 
     records: list[CostRecordResponse] = Field(..., description="成本记录列表")
     summary: CostSummaryResponse = Field(..., description="收支汇总")
+
+
+class ProjectDocumentFileResponse(BaseModel):
+    """项目文档文件响应体。"""
+
+    id: int = Field(..., description="文档ID")
+    project_id: int = Field(..., description="项目ID")
+    name: str = Field(..., description="文件名")
+    original_name: str = Field(..., description="原始文件名")
+    directory: str | None = Field(None, description="所属目录")
+    relative_path: str = Field(..., description="相对路径")
+    file_url: str = Field(..., description="访问地址")
+    content_type: str | None = Field(None, description="文件类型")
+    size: int = Field(..., description="文件大小")
+    modified_at: datetime = Field(..., description="修改时间")
+
+
+class ProjectDocumentListResponse(BaseModel):
+    """项目文档列表响应体。"""
+
+    project_id: int = Field(..., description="项目ID")
+    files: list[ProjectDocumentFileResponse] = Field(default_factory=list, description="文档文件列表")

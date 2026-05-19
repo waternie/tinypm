@@ -2,19 +2,29 @@
 
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
+from uuid import uuid4
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models.project import (
     Project,
     ProjectCostRecord,
+    ProjectDocumentFile,
     ProjectIssue,
+    ProjectIssueImage,
     ProjectMilestone,
     ProjectPlan,
     ProjectRequirement,
 )
+
+UPLOAD_ROOT = Path(settings.UPLOAD_DIR)
+ISSUE_IMAGE_DIR = UPLOAD_ROOT / "issues"
+DOCUMENTS_ROOT = Path(settings.DOCUMENTS_DIR)
+DOCUMENTS_FILES_ROOT = DOCUMENTS_ROOT / "files"
 
 
 def list_projects(
@@ -64,6 +74,9 @@ def create_project(
     priority: str = "中",
     description: str | None = None,
     announcement_markdown: str | None = None,
+    docs_repo_url: str | None = None,
+    docs_repo_branch: str | None = None,
+    docs_repo_subpath: str | None = None,
     project_manager: str | None = None,
     client_name: str | None = None,
     git_url: str | None = None,
@@ -78,6 +91,9 @@ def create_project(
         priority=priority,
         description=description,
         announcement_markdown=announcement_markdown,
+        docs_repo_url=docs_repo_url,
+        docs_repo_branch=docs_repo_branch,
+        docs_repo_subpath=docs_repo_subpath,
         project_manager=project_manager,
         client_name=client_name,
         git_url=git_url,
@@ -105,6 +121,12 @@ def update_project(db: Session, project_id: int, update_data: dict) -> Project:
         project.description = update_data["description"]
     if "announcement_markdown" in update_data:
         project.announcement_markdown = update_data["announcement_markdown"]
+    if "docs_repo_url" in update_data:
+        project.docs_repo_url = update_data["docs_repo_url"]
+    if "docs_repo_branch" in update_data:
+        project.docs_repo_branch = update_data["docs_repo_branch"]
+    if "docs_repo_subpath" in update_data:
+        project.docs_repo_subpath = update_data["docs_repo_subpath"]
     if "project_manager" in update_data:
         project.project_manager = update_data["project_manager"]
     if "client_name" in update_data:
@@ -126,6 +148,11 @@ def update_project(db: Session, project_id: int, update_data: dict) -> Project:
 def delete_project(db: Session, project_id: int) -> None:
     """删除项目。"""
     project = get_project(db, project_id)
+    for issue in project.issues:
+        for image in issue.images:
+            _delete_issue_image_file(image.file_path)
+    for document in project.documents:
+        _delete_project_document_file(document.file_path)
     db.delete(project)
     db.commit()
 
@@ -450,8 +477,94 @@ def delete_issue(db: Session, issue_id: int) -> None:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"问题ID {issue_id} 不存在",
         )
+    for image in issue.images:
+        _delete_issue_image_file(image.file_path)
     db.delete(issue)
     db.commit()
+
+
+def upload_issue_images(
+    db: Session,
+    issue_id: int,
+    files: list[UploadFile],
+) -> list[ProjectIssueImage]:
+    """为问题上传多张图片。"""
+    issue = db.query(ProjectIssue).filter(ProjectIssue.id == issue_id).first()
+    if issue is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"问题ID {issue_id} 不存在",
+        )
+
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="至少上传一张图片",
+        )
+
+    ISSUE_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    uploaded_images: list[ProjectIssueImage] = []
+
+    for file in files:
+        if not (file.content_type or "").startswith("image/"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"文件“{file.filename}”不是图片",
+            )
+
+        file_bytes = file.file.read()
+        if not file_bytes:
+            continue
+
+        suffix = Path(file.filename or "").suffix or ".png"
+        stored_file_name = f"{uuid4().hex}{suffix}"
+        relative_path = Path("issues") / str(issue_id) / stored_file_name
+        absolute_dir = UPLOAD_ROOT / "issues" / str(issue_id)
+        absolute_dir.mkdir(parents=True, exist_ok=True)
+        absolute_path = absolute_dir / stored_file_name
+        absolute_path.write_bytes(file_bytes)
+
+        image = ProjectIssueImage(
+            issue_id=issue_id,
+            file_name=stored_file_name,
+            original_name=file.filename or stored_file_name,
+            file_path=str(relative_path).replace("\\", "/"),
+            content_type=file.content_type,
+        )
+        db.add(image)
+        uploaded_images.append(image)
+
+    db.commit()
+    for image in uploaded_images:
+        db.refresh(image)
+    return uploaded_images
+
+
+def delete_issue_image(db: Session, image_id: int) -> None:
+    """删除问题图片。"""
+    image = db.query(ProjectIssueImage).filter(ProjectIssueImage.id == image_id).first()
+    if image is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"问题图片ID {image_id} 不存在",
+        )
+
+    _delete_issue_image_file(image.file_path)
+    db.delete(image)
+    db.commit()
+
+
+def build_issue_image_url(file_path: str) -> str:
+    """构造问题图片访问地址。"""
+    normalized_path = file_path.replace("\\", "/").lstrip("/")
+    return f"/api/uploads/{normalized_path}"
+
+
+def _delete_issue_image_file(file_path: str) -> None:
+    """删除本地问题图片文件。"""
+    absolute_path = UPLOAD_ROOT / Path(file_path)
+    if absolute_path.exists():
+        absolute_path.unlink()
 
 
 def list_cost_records(db: Session, project_id: int) -> list[ProjectCostRecord]:
@@ -547,3 +660,130 @@ def summarize_cost_records(records: list[ProjectCostRecord]) -> dict[str, float]
         "total_income": round(total_income, 2),
         "balance": round(total_income - total_expense, 2),
     }
+
+
+def get_project_documents_state(db: Session, project_id: int) -> dict:
+    """获取项目文档状态。"""
+    project = get_project(db, project_id)
+    records = (
+        db.query(ProjectDocumentFile)
+        .filter(ProjectDocumentFile.project_id == project_id)
+        .order_by(ProjectDocumentFile.created_at.desc(), ProjectDocumentFile.id.desc())
+        .all()
+    )
+    return {
+        "project_id": project.id,
+        "files": [
+            {
+                "id": record.id,
+                "project_id": record.project_id,
+                "name": record.file_name,
+                "original_name": record.original_name,
+                "directory": record.directory,
+                "relative_path": record.file_path,
+                "file_url": build_project_document_url(record.file_path),
+                "content_type": record.content_type,
+                "size": record.file_size,
+                "modified_at": record.updated_at or record.created_at,
+            }
+            for record in records
+        ],
+    }
+
+
+def upload_project_documents(
+    db: Session,
+    project_id: int,
+    files: list[UploadFile],
+    directory: str | None = None,
+) -> list[ProjectDocumentFile]:
+    """上传项目文档。"""
+    get_project(db, project_id)
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="至少上传一个文件",
+        )
+
+    normalized_directory = _normalize_document_directory(directory)
+    target_dir = DOCUMENTS_FILES_ROOT / f"project-{project_id}"
+    if normalized_directory:
+      target_dir = target_dir / normalized_directory
+    target_dir.mkdir(parents=True, exist_ok=True)
+    uploaded: list[ProjectDocumentFile] = []
+
+    for file in files:
+        file_bytes = file.file.read()
+        if not file_bytes:
+            continue
+
+        suffix = Path(file.filename or "").suffix
+        stored_file_name = f"{uuid4().hex}{suffix}"
+        relative_path = Path("files") / f"project-{project_id}"
+        if normalized_directory:
+            relative_path = relative_path / normalized_directory
+        relative_path = relative_path / stored_file_name
+        absolute_path = target_dir / stored_file_name
+        absolute_path.write_bytes(file_bytes)
+
+        document = ProjectDocumentFile(
+            project_id=project_id,
+            file_name=stored_file_name,
+            original_name=file.filename or stored_file_name,
+            directory=normalized_directory,
+            file_path=str(relative_path).replace("\\", "/"),
+            content_type=file.content_type,
+            file_size=len(file_bytes),
+        )
+        db.add(document)
+        uploaded.append(document)
+
+    db.commit()
+    for document in uploaded:
+        db.refresh(document)
+    return uploaded
+
+
+def delete_project_document(db: Session, document_id: int) -> None:
+    """删除项目文档。"""
+    document = db.query(ProjectDocumentFile).filter(ProjectDocumentFile.id == document_id).first()
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"项目文档ID {document_id} 不存在",
+        )
+
+    _delete_project_document_file(document.file_path)
+    db.delete(document)
+    db.commit()
+
+
+def build_project_document_url(relative_path: str) -> str:
+    """构造项目文档访问地址。"""
+    normalized_path = relative_path.replace("\\", "/").lstrip("/")
+    return f"/api/documents-storage/{normalized_path}"
+
+
+def _delete_project_document_file(file_path: str) -> None:
+    """删除本地项目文档文件。"""
+    absolute_path = DOCUMENTS_ROOT / Path(file_path)
+    if absolute_path.exists():
+        absolute_path.unlink()
+
+
+def _normalize_document_directory(directory: str | None) -> str | None:
+    """规范化文档目录并防止越界。"""
+    if directory is None:
+        return None
+
+    normalized = directory.strip().replace("\\", "/").strip("/")
+    if not normalized:
+        return None
+
+    candidate = Path(normalized)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="目标目录不合法",
+        )
+    return normalized

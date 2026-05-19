@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, ImagePlus, Pencil, Plus, Trash2, X } from 'lucide-react';
 import api from '../../api/client';
 
 const SEVERITY_COLORS = {
@@ -25,6 +25,9 @@ const IssueTab = ({ projectId, members, canManage }) => {
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [existingImages, setExistingImages] = useState([]);
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -61,6 +64,8 @@ const IssueTab = ({ projectId, members, canManage }) => {
       assignee: '',
       resolution: '',
     });
+    setExistingImages([]);
+    setSelectedFiles([]);
     setShowModal(true);
   };
 
@@ -74,11 +79,66 @@ const IssueTab = ({ projectId, members, canManage }) => {
       assignee: item.assignee || '',
       resolution: item.resolution || '',
     });
+    setExistingImages(item.images || []);
+    setSelectedFiles([]);
     setShowModal(true);
   };
 
   const handleChange = (field, value) => {
     setForm((previous) => ({ ...previous, [field]: value }));
+  };
+
+  const selectedFilePreviews = useMemo(
+    () => selectedFiles.map((file) => ({ name: file.name, url: URL.createObjectURL(file) })),
+    [selectedFiles],
+  );
+
+  useEffect(() => () => {
+    selectedFilePreviews.forEach((item) => URL.revokeObjectURL(item.url));
+  }, [selectedFilePreviews]);
+
+  const handleSelectImages = (event) => {
+    const nextFiles = Array.from(event.target.files || []);
+    if (nextFiles.length === 0) {
+      return;
+    }
+    setSelectedFiles((previous) => [...previous, ...nextFiles]);
+    event.target.value = '';
+  };
+
+  const removeSelectedFile = (index) => {
+    setSelectedFiles((previous) => previous.filter((_, fileIndex) => fileIndex !== index));
+  };
+
+  const handleDeleteExistingImage = async (imageId) => {
+    try {
+      await api.delete(`/projects/issues/images/${imageId}`);
+      setExistingImages((previous) => previous.filter((image) => image.id !== imageId));
+      setNotice('图片已删除');
+    } catch (err) {
+      setError(err.response?.data?.detail || '删除图片失败');
+    }
+  };
+
+  const uploadIssueImages = async (issueId) => {
+    if (selectedFiles.length === 0) {
+      return;
+    }
+
+    setUploadingImages(true);
+    try {
+      const formData = new FormData();
+      selectedFiles.forEach((file) => formData.append('files', file));
+      const response = await api.post(`/projects/issues/${issueId}/images`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      setExistingImages((previous) => [...previous, ...response.data]);
+      setSelectedFiles([]);
+    } finally {
+      setUploadingImages(false);
+    }
   };
 
   const handleSave = async () => {
@@ -96,13 +156,15 @@ const IssueTab = ({ projectId, members, canManage }) => {
         assignee: form.assignee || null,
         resolution: form.resolution || null,
       };
+      let issueResponse;
       if (editingId) {
-        await api.put(`/projects/issues/${editingId}`, payload);
+        issueResponse = await api.put(`/projects/issues/${editingId}`, payload);
         setNotice('问题已更新');
       } else {
-        await api.post(`/projects/${projectId}/issues`, payload);
+        issueResponse = await api.post(`/projects/${projectId}/issues`, payload);
         setNotice('问题已创建');
       }
+      await uploadIssueImages(issueResponse.data.id);
       setShowModal(false);
       await fetchIssues();
     } catch (err) {
@@ -260,6 +322,64 @@ const IssueTab = ({ projectId, members, canManage }) => {
                   <textarea className="textarea" value={form.description} onChange={(event) => handleChange('description', event.target.value)} placeholder="描述问题详情" />
                 </div>
                 <div>
+                  <label className="form-label">问题图片</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                    <label className="btn btn-secondary" style={{ alignSelf: 'flex-start' }}>
+                      <ImagePlus size={16} />
+                      选择图片
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleSelectImages}
+                        style={{ display: 'none' }}
+                      />
+                    </label>
+
+                    {existingImages.length > 0 && (
+                      <div>
+                        <div className="form-hint" style={{ marginBottom: 'var(--space-2)' }}>已上传图片</div>
+                        <div className="image-grid">
+                          {existingImages.map((image) => (
+                            <div key={image.id} className="image-card">
+                              <img src={image.image_url} alt={image.original_name} className="image-card-preview" />
+                              <button
+                                type="button"
+                                className="image-card-remove"
+                                onClick={() => handleDeleteExistingImage(image.id)}
+                                title="删除图片"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedFilePreviews.length > 0 && (
+                      <div>
+                        <div className="form-hint" style={{ marginBottom: 'var(--space-2)' }}>待上传图片</div>
+                        <div className="image-grid">
+                          {selectedFilePreviews.map((file, index) => (
+                            <div key={`${file.name}-${index}`} className="image-card">
+                              <img src={file.url} alt={file.name} className="image-card-preview" />
+                              <button
+                                type="button"
+                                className="image-card-remove"
+                                onClick={() => removeSelectedFile(index)}
+                                title="移除图片"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div>
                   <label className="form-label">解决方案</label>
                   <textarea className="textarea" value={form.resolution} onChange={(event) => handleChange('resolution', event.target.value)} placeholder="解决方案" />
                 </div>
@@ -268,7 +388,7 @@ const IssueTab = ({ projectId, members, canManage }) => {
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowModal(false)}>取消</button>
               <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                {saving ? '保存中...' : '保存'}
+                {saving || uploadingImages ? '保存中...' : '保存'}
               </button>
             </div>
           </div>

@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../api/client';
 import AnnouncementTab from './AnnouncementTab';
 import CostTab from './CostTab';
+import DocumentTab from './DocumentTab';
 import useMembers from '../../hooks/useMembers';
 import { canManageProjects, getStoredUser } from '../../utils/auth';
 import IssueTab from './IssueTab';
@@ -22,6 +23,7 @@ const TABS = [
   { key: 'requirement', label: '需求管理' },
   { key: 'issue', label: '问题管理' },
   { key: 'cost', label: '成本管理' },
+  { key: 'document', label: '文档管理' },
 ];
 
 function isSafeUrl(url) {
@@ -108,6 +110,8 @@ const ProjectDetail = () => {
         return <IssueTab projectId={projectId} members={members} canManage={canManage} />;
       case 'cost':
         return <CostTab projectId={projectId} members={members} canManage={canManage} />;
+      case 'document':
+        return <DocumentTab projectId={projectId} canManage={canManage} />;
       default:
         return null;
     }

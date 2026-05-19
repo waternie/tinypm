@@ -1,6 +1,6 @@
 # TinyPM
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](./README.md)
+[![Version](https://img.shields.io/badge/version-1.0.1-blue)](./README.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 [![Open Source](https://img.shields.io/badge/Open%20Source-Yes-1f6feb)](./LICENSE)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/)
@@ -8,7 +8,7 @@
 
 一个面向团队协作的独立项目管理平台，提供用户权限、成员库、项目公告、成本管理，以及项目执行过程中的计划、需求、问题与里程碑管理能力。
 
-当前版本：`1.0.0`
+当前版本：`1.0.1`
 
 - English README: [README.en.md](./README.en.md)
 

@@ -1,6 +1,6 @@
 """项目管理路由。"""
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -12,6 +12,7 @@ from app.schemas.project import (
     CostRecordResponse,
     CostRecordUpdate,
     IssueCreate,
+    IssueImageResponse,
     IssueResponse,
     IssueUpdate,
     MilestoneCreate,
@@ -20,6 +21,8 @@ from app.schemas.project import (
     PlanCreate,
     PlanResponse,
     PlanUpdate,
+    ProjectDocumentFileResponse,
+    ProjectDocumentListResponse,
     ProjectCreate,
     ProjectResponse,
     ProjectUpdate,
@@ -30,6 +33,35 @@ from app.schemas.project import (
 from app.services import project as project_service
 
 router = APIRouter(prefix="/api/projects", tags=["项目管理"])
+
+
+def _serialize_issue(issue) -> IssueResponse:
+    """序列化问题及其图片。"""
+    return IssueResponse(
+        id=issue.id,
+        project_id=issue.project_id,
+        title=issue.title,
+        description=issue.description,
+        severity=issue.severity,
+        status=issue.status,
+        assignee=issue.assignee,
+        resolution=issue.resolution,
+        images=[
+            IssueImageResponse(
+                id=image.id,
+                issue_id=image.issue_id,
+                file_name=image.file_name,
+                original_name=image.original_name,
+                file_path=image.file_path,
+                image_url=project_service.build_issue_image_url(image.file_path),
+                content_type=image.content_type,
+                created_at=image.created_at,
+            )
+            for image in issue.images
+        ],
+        created_at=issue.created_at,
+        updated_at=issue.updated_at,
+    )
 
 
 @router.get(
@@ -87,6 +119,9 @@ def create_project(
         priority=data.priority,
         description=data.description,
         announcement_markdown=data.announcement_markdown,
+        docs_repo_url=data.docs_repo_url,
+        docs_repo_branch=data.docs_repo_branch,
+        docs_repo_subpath=data.docs_repo_subpath,
         project_manager=data.project_manager,
         client_name=data.client_name,
         git_url=data.git_url,
@@ -419,7 +454,7 @@ def list_issues(
     """获取问题列表。"""
     del current_user
     issues = project_service.list_issues(db, project_id)
-    return [IssueResponse.model_validate(item) for item in issues]
+    return [_serialize_issue(issue) for issue in issues]
 
 
 @router.post(
@@ -446,7 +481,7 @@ def create_issue(
         assignee=data.assignee,
         resolution=data.resolution,
     )
-    return IssueResponse.model_validate(issue)
+    return _serialize_issue(issue)
 
 
 @router.put(
@@ -467,7 +502,7 @@ def update_issue(
         issue_id=issue_id,
         update_data=data.model_dump(exclude_unset=True),
     )
-    return IssueResponse.model_validate(issue)
+    return _serialize_issue(issue)
 
 
 @router.delete(
@@ -483,6 +518,114 @@ def delete_issue(
     """删除问题。"""
     del current_user
     project_service.delete_issue(db, issue_id)
+
+
+@router.get(
+    "/{project_id}/documents",
+    response_model=ProjectDocumentListResponse,
+    summary="获取项目文档列表",
+)
+def get_project_documents(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ProjectDocumentListResponse:
+    """获取项目文档列表。"""
+    del current_user
+    return ProjectDocumentListResponse(**project_service.get_project_documents_state(db, project_id))
+
+
+@router.post(
+    "/{project_id}/documents/upload",
+    response_model=list[ProjectDocumentFileResponse],
+    status_code=status.HTTP_201_CREATED,
+    summary="上传项目文档",
+)
+def upload_project_documents(
+    project_id: int,
+    directory: str | None = Query(None, description="目标目录"),
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_manager_or_admin),
+) -> list[ProjectDocumentFileResponse]:
+    """上传项目文档。"""
+    del current_user
+    documents = project_service.upload_project_documents(db, project_id, files, directory)
+    return [
+        ProjectDocumentFileResponse(
+            id=document.id,
+            project_id=document.project_id,
+            name=document.file_name,
+            original_name=document.original_name,
+            directory=document.directory,
+            relative_path=document.file_path,
+            file_url=project_service.build_project_document_url(document.file_path),
+            content_type=document.content_type,
+            size=document.file_size,
+            modified_at=document.updated_at or document.created_at,
+        )
+        for document in documents
+    ]
+
+
+@router.delete(
+    "/documents/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="删除项目文档",
+)
+def delete_project_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_manager_or_admin),
+) -> None:
+    """删除项目文档。"""
+    del current_user
+    project_service.delete_project_document(db, document_id)
+
+
+@router.post(
+    "/issues/{issue_id}/images",
+    response_model=list[IssueImageResponse],
+    status_code=status.HTTP_201_CREATED,
+    summary="为问题上传图片",
+)
+def upload_issue_images(
+    issue_id: int,
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_manager_or_admin),
+) -> list[IssueImageResponse]:
+    """为问题上传多张图片。"""
+    del current_user
+    images = project_service.upload_issue_images(db, issue_id, files)
+    return [
+        IssueImageResponse(
+            id=image.id,
+            issue_id=image.issue_id,
+            file_name=image.file_name,
+            original_name=image.original_name,
+            file_path=image.file_path,
+            image_url=project_service.build_issue_image_url(image.file_path),
+            content_type=image.content_type,
+            created_at=image.created_at,
+        )
+        for image in images
+    ]
+
+
+@router.delete(
+    "/issues/images/{image_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="删除问题图片",
+)
+def delete_issue_image(
+    image_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_manager_or_admin),
+) -> None:
+    """删除问题图片。"""
+    del current_user
+    project_service.delete_issue_image(db, image_id)
 
 
 @router.get(

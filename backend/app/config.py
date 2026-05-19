@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     INITIAL_ADMIN_USERNAME: str = "admin"
     INITIAL_ADMIN_PASSWORD: str = "admin"
     INITIAL_ADMIN_DISPLAY_NAME: str = "平台管理员"
+    UPLOAD_DIR: str = "uploads"
+    DOCUMENTS_DIR: str = "documents"
 
     class Config:
         """环境变量读取配置。"""

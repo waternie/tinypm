@@ -7,7 +7,9 @@ from app.models.member import Member
 from app.models.project import (
     Project,
     ProjectCostRecord,
+    ProjectDocumentFile,
     ProjectIssue,
+    ProjectIssueImage,
     ProjectMilestone,
     ProjectPlan,
     ProjectRequirement,
@@ -22,7 +24,9 @@ __all__ = [
     "ProjectPlan",
     "ProjectRequirement",
     "ProjectIssue",
+    "ProjectIssueImage",
     "ProjectCostRecord",
+    "ProjectDocumentFile",
 ]
 
 
