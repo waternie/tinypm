@@ -3,6 +3,7 @@
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.models.agent import AgentMessage, AgentSession, AgentSetting
 from app.models.member import Member
 from app.models.project import (
     Project,
@@ -19,6 +20,9 @@ from app.models.user import USER_ROLE_ADMIN, User
 __all__ = [
     "User",
     "Member",
+    "AgentSetting",
+    "AgentSession",
+    "AgentMessage",
     "Project",
     "ProjectMilestone",
     "ProjectPlan",

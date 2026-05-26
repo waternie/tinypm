@@ -12,6 +12,10 @@ const emptyState = {
 };
 
 const ROOT_GROUP = '根目录';
+const MAX_PREVIEW_SHEETS = 5;
+const MAX_PREVIEW_ROWS = 120;
+const MAX_PREVIEW_COLUMNS = 40;
+const PREVIEW_FETCH_TIMEOUT_MS = 15000;
 
 const formatBytes = (size) => {
   if (size < 1024) return `${size} B`;
@@ -31,10 +35,101 @@ const getFileKind = (file) => {
   return 'other';
 };
 
-const escapeHtml = (value) => value
+const escapeHtml = (value) => String(value ?? '')
   .replaceAll('&', '&amp;')
   .replaceAll('<', '&lt;')
   .replaceAll('>', '&gt;');
+
+const fetchPreviewResource = async (url) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PREVIEW_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`文档读取失败（HTTP ${response.status}）`);
+    }
+    return response;
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('文档读取超时，请稍后重试或下载后查看');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+const getLimitedSheetRange = (worksheet) => {
+  if (!worksheet?.['!ref']) {
+    return null;
+  }
+
+  const originalRange = XLSX.utils.decode_range(worksheet['!ref']);
+  return {
+    originalRange,
+    limitedRange: {
+      s: { ...originalRange.s },
+      e: {
+        r: Math.min(originalRange.e.r, originalRange.s.r + MAX_PREVIEW_ROWS - 1),
+        c: Math.min(originalRange.e.c, originalRange.s.c + MAX_PREVIEW_COLUMNS - 1),
+      },
+    },
+  };
+};
+
+const buildWorkbookPreviewHtml = (workbook) => {
+  const sheetNames = workbook.SheetNames.slice(0, MAX_PREVIEW_SHEETS);
+  const sheetLimitNote = workbook.SheetNames.length > MAX_PREVIEW_SHEETS
+    ? `<div class="doc-preview-note">仅展示前 ${MAX_PREVIEW_SHEETS} 个工作表，共 ${workbook.SheetNames.length} 个。</div>`
+    : '';
+
+  const sections = sheetNames.map((sheetName) => {
+    const worksheet = workbook.Sheets[sheetName];
+    const ranges = getLimitedSheetRange(worksheet);
+
+    if (!ranges) {
+      return `<section style="margin-bottom:16px"><h3>${escapeHtml(sheetName)}</h3><div class="empty-state-description">该工作表暂无可预览内容。</div></section>`;
+    }
+
+    const { originalRange, limitedRange } = ranges;
+    const originalRows = originalRange.e.r - originalRange.s.r + 1;
+    const originalColumns = originalRange.e.c - originalRange.s.c + 1;
+    const limitParts = [];
+
+    if (originalRows > MAX_PREVIEW_ROWS) {
+      limitParts.push(`前 ${MAX_PREVIEW_ROWS} 行`);
+    }
+    if (originalColumns > MAX_PREVIEW_COLUMNS) {
+      limitParts.push(`前 ${MAX_PREVIEW_COLUMNS} 列`);
+    }
+
+    const rows = XLSX.utils.sheet_to_json(worksheet, {
+      header: 1,
+      defval: '',
+      blankrows: false,
+      range: limitedRange,
+    });
+    const tableRows = rows.map((row, rowIndex) => {
+      const tag = rowIndex === 0 ? 'th' : 'td';
+      const visibleCells = row.slice(0, MAX_PREVIEW_COLUMNS);
+      const cells = visibleCells.length > 0
+        ? visibleCells.map((cell) => `<${tag}>${escapeHtml(cell)}</${tag}>`).join('')
+        : `<${tag}></${tag}>`;
+      return `<tr>${cells}</tr>`;
+    }).join('');
+    const limitNote = limitParts.length > 0
+      ? `<p class="doc-preview-note">该工作表范围较大，仅展示${limitParts.join('、')}。</p>`
+      : '';
+    const table = tableRows
+      ? `<table><tbody>${tableRows}</tbody></table>`
+      : '<div class="empty-state-description">该工作表暂无可预览内容。</div>';
+
+    return `<section style="margin-bottom:16px"><h3>${escapeHtml(sheetName)}</h3>${limitNote}${table}</section>`;
+  }).join('');
+
+  return sheetLimitNote + (sections || '<div class="empty-state-description">未解析到可展示的表格内容。</div>');
+};
 
 const DocumentTab = ({ projectId, canManage }) => {
   const [state, setState] = useState(emptyState);
@@ -123,14 +218,14 @@ const DocumentTab = ({ projectId, canManage }) => {
       }
 
       if (kind === 'markdown' || kind === 'text') {
-        const response = await fetch(file.file_url);
+        const response = await fetchPreviewResource(file.file_url);
         const text = await response.text();
         setPreview({ kind, content: text, html: '', slides: [], error: '' });
         return;
       }
 
       if (kind === 'docx') {
-        const response = await fetch(file.file_url);
+        const response = await fetchPreviewResource(file.file_url);
         const arrayBuffer = await response.arrayBuffer();
         const result = await mammoth.convertToHtml({ arrayBuffer });
         setPreview({ kind, content: '', html: result.value, slides: [], error: '' });
@@ -139,34 +234,24 @@ const DocumentTab = ({ projectId, canManage }) => {
 
       if (kind === 'sheet') {
         if ((file.original_name || '').toLowerCase().endsWith('.csv')) {
-          const response = await fetch(file.file_url);
+          const response = await fetchPreviewResource(file.file_url);
           const text = await response.text();
-          const workbook = XLSX.read(text, { type: 'string' });
-          const html = workbook.SheetNames.map((sheetName) => (
-            `<section style="margin-bottom:16px"><h3>${escapeHtml(sheetName)}</h3>${XLSX.utils.sheet_to_html(workbook.Sheets[sheetName])}</section>`
-          )).join('');
+          const workbook = XLSX.read(text, { type: 'string', sheetRows: MAX_PREVIEW_ROWS });
+          const html = buildWorkbookPreviewHtml(workbook);
           setPreview({ kind, content: '', html, slides: [], error: '' });
           return;
         }
 
-        const response = await fetch(file.file_url);
+        const response = await fetchPreviewResource(file.file_url);
         const arrayBuffer = await response.arrayBuffer();
-        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-        const html = workbook.SheetNames.map((sheetName) => {
-          const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
-          const tableRows = rows.map((row, rowIndex) => {
-            const tag = rowIndex === 0 ? 'th' : 'td';
-            const cells = row.map((cell) => `<${tag}>${escapeHtml(String(cell ?? ''))}</${tag}>`).join('');
-            return `<tr>${cells}</tr>`;
-          }).join('');
-          return `<section style="margin-bottom:16px"><h3>${escapeHtml(sheetName)}</h3><table><tbody>${tableRows}</tbody></table></section>`;
-        }).join('');
+        const workbook = XLSX.read(arrayBuffer, { type: 'array', sheetRows: MAX_PREVIEW_ROWS });
+        const html = buildWorkbookPreviewHtml(workbook);
         setPreview({ kind, content: '', html, slides: [], error: '' });
         return;
       }
 
       if (kind === 'pptx') {
-        const response = await fetch(file.file_url);
+        const response = await fetchPreviewResource(file.file_url);
         const arrayBuffer = await response.arrayBuffer();
         const zip = await JSZip.loadAsync(arrayBuffer);
         const slideEntries = Object.keys(zip.files)
@@ -259,6 +344,15 @@ const DocumentTab = ({ projectId, canManage }) => {
       ...previous,
       [directory]: !previous[directory],
     }));
+  };
+
+  const handleDocumentKeyDown = (event, documentId) => {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+
+    event.preventDefault();
+    setSelectedDocumentId(documentId);
   };
 
   const renderPreview = () => {
@@ -400,10 +494,13 @@ const DocumentTab = ({ projectId, canManage }) => {
                     <span className="text-caption">{expandedGroups[group.directory] ? '收起' : '展开'} · {group.files.length}</span>
                   </button>
                   {expandedGroups[group.directory] && group.files.map((file) => (
-                    <button
+                    <div
                       key={file.id}
+                      role="button"
+                      tabIndex={0}
                       className={`doc-sidebar-item${selectedDocumentId === file.id ? ' active' : ''}`}
                       onClick={() => setSelectedDocumentId(file.id)}
+                      onKeyDown={(event) => handleDocumentKeyDown(event, file.id)}
                     >
                       <div className="doc-sidebar-item-main">
                         <div className="doc-sidebar-item-name">{file.original_name}</div>
@@ -445,7 +542,7 @@ const DocumentTab = ({ projectId, canManage }) => {
                           </button>
                         )}
                       </div>
-                    </button>
+                    </div>
                   ))}
                 </div>
               ))}

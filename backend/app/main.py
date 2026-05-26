@@ -10,7 +10,7 @@ from sqlalchemy import inspect, text
 
 from app.config import settings
 from app.database import Base, SessionLocal, engine
-from app.routers import auth, members, projects, users
+from app.routers import agent, auth, members, project_mcp, projects, users
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="TinyPM API",
     description="独立项目管理平台后端 API",
-    version="2.0.0",
+    version="1.1.0",
 )
 
 app.add_middleware(
@@ -33,6 +33,8 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(agent.router)
+app.include_router(project_mcp.router)
 app.include_router(users.router)
 app.include_router(members.router)
 app.include_router(projects.router)
@@ -48,6 +50,7 @@ def on_startup() -> None:
     logger.info("正在初始化 TinyPM 数据库表")
     Base.metadata.create_all(bind=engine)
     _ensure_user_schema()
+    _ensure_agent_schema()
     _ensure_project_schema()
     logger.info("数据库表初始化完成")
 
@@ -104,6 +107,56 @@ def _ensure_user_schema() -> None:
     logger.info("users 表结构补齐完成")
 
 
+def _ensure_agent_schema() -> None:
+    """为旧版本 agent 表补齐会话字段。"""
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    statements: list[str] = []
+
+    if "agent_sessions" in table_names:
+        session_column_names = {
+            column["name"] for column in inspector.get_columns("agent_sessions")
+        }
+        if "project_id" not in session_column_names:
+            statements.append("ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS project_id INTEGER")
+        if "title" not in session_column_names:
+            statements.append(
+                "ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS title VARCHAR(128) NOT NULL DEFAULT '新对话'"
+            )
+        if "skill_id" not in session_column_names:
+            statements.append(
+                "ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS skill_id VARCHAR(64) NOT NULL DEFAULT 'general'"
+            )
+        if "system_prompt" not in session_column_names:
+            statements.append("ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS system_prompt TEXT")
+        if "last_message_at" not in session_column_names:
+            statements.append(
+                "ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW()"
+            )
+
+    if "agent_messages" in table_names:
+        message_column_names = {
+            column["name"] for column in inspector.get_columns("agent_messages")
+        }
+        if "model" not in message_column_names:
+            statements.append("ALTER TABLE agent_messages ADD COLUMN IF NOT EXISTS model VARCHAR(128)")
+        if "tool_calls_json" not in message_column_names:
+            statements.append("ALTER TABLE agent_messages ADD COLUMN IF NOT EXISTS tool_calls_json TEXT")
+        if "is_error" not in message_column_names:
+            statements.append(
+                "ALTER TABLE agent_messages ADD COLUMN IF NOT EXISTS is_error BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+
+    if not statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+    logger.info("agent 表结构补齐完成")
+
+
 def _ensure_project_schema() -> None:
     """为旧版本 projects 表补齐扩展字段。"""
     inspector = inspect(engine)
@@ -148,6 +201,31 @@ def _ensure_project_schema() -> None:
         if "directory" not in document_column_names:
             statements.append(
                 "ALTER TABLE project_document_files ADD COLUMN IF NOT EXISTS directory VARCHAR(255)"
+            )
+
+    if "project_plans" in inspector.get_table_names():
+        plan_column_names = {
+            column["name"] for column in inspector.get_columns("project_plans")
+        }
+        if "primary_task" not in plan_column_names:
+            statements.append(
+                "ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS primary_task VARCHAR(256)"
+            )
+        if "secondary_task" not in plan_column_names:
+            statements.append(
+                "ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS secondary_task VARCHAR(256)"
+            )
+        if "dependency" not in plan_column_names:
+            statements.append(
+                "ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS dependency VARCHAR(256)"
+            )
+        if "duration" not in plan_column_names:
+            statements.append(
+                "ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS duration VARCHAR(32)"
+            )
+        if "progress_pct" not in plan_column_names:
+            statements.append(
+                "ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS progress_pct INTEGER NOT NULL DEFAULT 0"
             )
 
     if "project_cost_records" in inspector.get_table_names():

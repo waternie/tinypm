@@ -1,6 +1,9 @@
 """项目管理路由。"""
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -19,6 +22,7 @@ from app.schemas.project import (
     MilestoneResponse,
     MilestoneUpdate,
     PlanCreate,
+    PlanImportResponse,
     PlanResponse,
     PlanUpdate,
     ProjectDocumentFileResponse,
@@ -315,6 +319,11 @@ def create_plan(
         db,
         project_id=project_id,
         phase_name=data.phase_name,
+        primary_task=data.primary_task,
+        secondary_task=data.secondary_task,
+        dependency=data.dependency,
+        duration=data.duration,
+        progress_pct=data.progress_pct,
         description=data.description,
         planned_start=data.planned_start,
         planned_end=data.planned_end,
@@ -324,6 +333,51 @@ def create_plan(
         assignee=data.assignee,
     )
     return PlanResponse.model_validate(plan)
+
+
+@router.post(
+    "/{project_id}/plans/import",
+    response_model=PlanImportResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="导入项目计划",
+)
+def import_plans(
+    project_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_manager_or_admin),
+) -> PlanImportResponse:
+    """从 Excel 导入项目计划。"""
+    del current_user
+    result = project_service.import_plans_from_excel(db, project_id, file)
+    return PlanImportResponse(
+        created_count=result["created_count"],
+        skipped_count=result["skipped_count"],
+        errors=result["errors"],
+        plans=[PlanResponse.model_validate(plan) for plan in result["plans"]],
+    )
+
+
+@router.get(
+    "/{project_id}/plans/export",
+    summary="导出项目计划",
+)
+def export_plans(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """导出项目计划 Excel。"""
+    del current_user
+    filename, content = project_service.export_plans_to_excel(db, project_id)
+    quoted_filename = quote(filename)
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quoted_filename}",
+        },
+    )
 
 
 @router.put(

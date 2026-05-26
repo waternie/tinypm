@@ -1,11 +1,17 @@
 """项目管理服务模块。"""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
+from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile, status
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+from openpyxl.utils.datetime import from_excel
+from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -25,6 +31,28 @@ UPLOAD_ROOT = Path(settings.UPLOAD_DIR)
 ISSUE_IMAGE_DIR = UPLOAD_ROOT / "issues"
 DOCUMENTS_ROOT = Path(settings.DOCUMENTS_DIR)
 DOCUMENTS_FILES_ROOT = DOCUMENTS_ROOT / "files"
+
+PLAN_SHEET_NAME = "项目开发计划"
+PLAN_TEMPLATE_HEADERS = [
+    "阶段",
+    "一级任务",
+    "二级任务（如有）",
+    "依赖项\n（关联依赖项管理Sheet序列号）",
+    "当前状态",
+    "工期",
+    "当前进度",
+    "计划开始\n时间",
+    "计划结束\n时间",
+    "实际开始时间",
+    "实际结束时间",
+    "备注",
+]
+PLAN_STATUS_IMPORT_MAP = {
+    "未开始": "待开始",
+}
+PLAN_STATUS_EXPORT_MAP = {
+    "待开始": "未开始",
+}
 
 
 def list_projects(
@@ -245,10 +273,26 @@ def list_plans(db: Session, project_id: int) -> list[ProjectPlan]:
     )
 
 
+def get_plan(db: Session, plan_id: int) -> ProjectPlan:
+    """根据ID获取项目计划。"""
+    plan = db.query(ProjectPlan).filter(ProjectPlan.id == plan_id).first()
+    if plan is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"计划ID {plan_id} 不存在",
+        )
+    return plan
+
+
 def create_plan(
     db: Session,
     project_id: int,
     phase_name: str,
+    primary_task: str | None = None,
+    secondary_task: str | None = None,
+    dependency: str | None = None,
+    duration: str | None = None,
+    progress_pct: int = 0,
     description: str | None = None,
     planned_start: date | None = None,
     planned_end: date | None = None,
@@ -262,6 +306,11 @@ def create_plan(
     plan = ProjectPlan(
         project_id=project_id,
         phase_name=phase_name.strip(),
+        primary_task=_clean_optional_text(primary_task),
+        secondary_task=_clean_optional_text(secondary_task),
+        dependency=_clean_optional_text(dependency),
+        duration=_clean_optional_text(duration),
+        progress_pct=_coerce_progress_pct(progress_pct),
         description=description,
         planned_start=planned_start,
         planned_end=planned_end,
@@ -287,6 +336,16 @@ def update_plan(db: Session, plan_id: int, update_data: dict) -> ProjectPlan:
 
     if "phase_name" in update_data:
         plan.phase_name = update_data["phase_name"].strip()
+    if "primary_task" in update_data:
+        plan.primary_task = _clean_optional_text(update_data["primary_task"])
+    if "secondary_task" in update_data:
+        plan.secondary_task = _clean_optional_text(update_data["secondary_task"])
+    if "dependency" in update_data:
+        plan.dependency = _clean_optional_text(update_data["dependency"])
+    if "duration" in update_data:
+        plan.duration = _clean_optional_text(update_data["duration"])
+    if "progress_pct" in update_data:
+        plan.progress_pct = _coerce_progress_pct(update_data["progress_pct"])
     if "description" in update_data:
         plan.description = update_data["description"]
     if "planned_start" in update_data:
@@ -317,6 +376,389 @@ def delete_plan(db: Session, plan_id: int) -> None:
         )
     db.delete(plan)
     db.commit()
+
+
+def import_plans_from_excel(
+    db: Session,
+    project_id: int,
+    file: UploadFile,
+) -> dict:
+    """从 Excel 项目开发计划 sheet 导入计划记录。"""
+    get_project(db, project_id)
+    file_bytes = file.file.read()
+    if not file_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="导入文件为空",
+        )
+
+    try:
+        workbook = load_workbook(BytesIO(file_bytes), data_only=True)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="无法读取 Excel 文件，请确认文件格式为 .xlsx",
+        ) from exc
+
+    worksheet = (
+        workbook[PLAN_SHEET_NAME]
+        if PLAN_SHEET_NAME in workbook.sheetnames
+        else workbook.active
+    )
+    header_row = _find_plan_header_row(worksheet)
+    column_map = _resolve_plan_column_map(worksheet, header_row)
+
+    created_plans: list[ProjectPlan] = []
+    errors: list[str] = []
+    skipped_count = 0
+    current_phase: str | None = None
+    current_primary_task: str | None = None
+
+    for row_index in range(header_row + 1, worksheet.max_row + 1):
+        row_data = _read_plan_excel_row(worksheet, row_index, column_map)
+        if not _has_plan_business_value(row_data):
+            skipped_count += 1
+            continue
+
+        raw_phase = row_data.get("phase_name")
+        raw_primary_task = row_data.get("primary_task")
+        raw_secondary_task = row_data.get("secondary_task")
+
+        if raw_phase:
+            current_phase = raw_phase
+            if not raw_primary_task:
+                current_primary_task = None
+        if raw_primary_task:
+            current_primary_task = raw_primary_task
+
+        phase_name = raw_phase or current_phase or raw_primary_task or raw_secondary_task
+        if not phase_name:
+            skipped_count += 1
+            errors.append(f"第 {row_index} 行缺少阶段或任务名称，已跳过")
+            continue
+
+        try:
+            plan = ProjectPlan(
+                project_id=project_id,
+                phase_name=phase_name,
+                primary_task=raw_primary_task or current_primary_task,
+                secondary_task=raw_secondary_task,
+                dependency=row_data.get("dependency"),
+                duration=row_data.get("duration"),
+                progress_pct=_parse_progress_value(row_data.get("progress_pct")),
+                description=row_data.get("description"),
+                planned_start=_parse_excel_date_value(row_data.get("planned_start")),
+                planned_end=_parse_excel_date_value(row_data.get("planned_end")),
+                actual_start=_parse_excel_date_value(row_data.get("actual_start")),
+                actual_end=_parse_excel_date_value(row_data.get("actual_end")),
+                status=_normalize_import_status(row_data.get("status")),
+                assignee=None,
+            )
+        except ValueError as exc:
+            skipped_count += 1
+            errors.append(f"第 {row_index} 行解析失败：{exc}")
+            continue
+
+        db.add(plan)
+        created_plans.append(plan)
+
+    if created_plans:
+        db.commit()
+        for plan in created_plans:
+            db.refresh(plan)
+
+    return {
+        "created_count": len(created_plans),
+        "skipped_count": skipped_count,
+        "errors": errors,
+        "plans": created_plans,
+    }
+
+
+def export_plans_to_excel(db: Session, project_id: int) -> tuple[str, bytes]:
+    """导出项目计划为项目开发计划模板格式。"""
+    project = get_project(db, project_id)
+    plans = list_plans(db, project_id)
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = PLAN_SHEET_NAME
+
+    _build_plan_template_header(worksheet, project.name)
+    for row_offset, plan in enumerate(plans, start=5):
+        _write_plan_export_row(worksheet, row_offset, plan)
+
+    _style_plan_template(worksheet, max_row=max(worksheet.max_row, 5))
+    output = BytesIO()
+    workbook.save(output)
+    filename = f"{project.name}_项目开发计划.xlsx"
+    return filename, output.getvalue()
+
+
+def _find_plan_header_row(worksheet: Worksheet) -> int:
+    """定位项目开发计划表头行。"""
+    for row_index in range(1, min(worksheet.max_row, 20) + 1):
+        values = [
+            _normalize_header_text(worksheet.cell(row=row_index, column=column_index).value)
+            for column_index in range(1, min(worksheet.max_column, 24) + 1)
+        ]
+        if "阶段" in values and "一级任务" in values:
+            return row_index
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="未找到项目开发计划表头，请确认包含“阶段”和“一级任务”列",
+    )
+
+
+def _resolve_plan_column_map(worksheet: Worksheet, header_row: int) -> dict[str, int]:
+    """解析项目计划 Excel 字段列号。"""
+    normalized_headers = {
+        _normalize_header_text(worksheet.cell(row=header_row, column=column_index).value): column_index
+        for column_index in range(1, worksheet.max_column + 1)
+    }
+    required_headers = {
+        "阶段": "phase_name",
+        "一级任务": "primary_task",
+        "二级任务（如有）": "secondary_task",
+        "当前状态": "status",
+        "计划开始时间": "planned_start",
+        "计划结束时间": "planned_end",
+    }
+    optional_headers = {
+        "依赖项（关联依赖项管理Sheet序列号）": "dependency",
+        "工期": "duration",
+        "当前进度": "progress_pct",
+        "实际开始时间": "actual_start",
+        "实际结束时间": "actual_end",
+        "备注": "description",
+    }
+
+    column_map: dict[str, int] = {}
+    missing_headers: list[str] = []
+    for header, field_name in required_headers.items():
+        column_index = normalized_headers.get(header)
+        if column_index is None:
+            missing_headers.append(header)
+        else:
+            column_map[field_name] = column_index
+
+    if missing_headers:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"导入文件缺少必要列：{', '.join(missing_headers)}",
+        )
+
+    for header, field_name in optional_headers.items():
+        column_index = normalized_headers.get(header)
+        if column_index is not None:
+            column_map[field_name] = column_index
+
+    return column_map
+
+
+def _read_plan_excel_row(
+    worksheet: Worksheet,
+    row_index: int,
+    column_map: dict[str, int],
+) -> dict[str, object]:
+    """读取 Excel 中的一行项目计划数据。"""
+    row_data: dict[str, object] = {}
+    for field_name, column_index in column_map.items():
+        row_data[field_name] = worksheet.cell(row=row_index, column=column_index).value
+
+    return {
+        "phase_name": _clean_optional_text(row_data.get("phase_name")),
+        "primary_task": _clean_optional_text(row_data.get("primary_task")),
+        "secondary_task": _clean_optional_text(row_data.get("secondary_task")),
+        "dependency": _clean_optional_text(row_data.get("dependency")),
+        "status": _clean_optional_text(row_data.get("status")),
+        "duration": _clean_optional_text(row_data.get("duration")),
+        "progress_pct": row_data.get("progress_pct"),
+        "planned_start": row_data.get("planned_start"),
+        "planned_end": row_data.get("planned_end"),
+        "actual_start": row_data.get("actual_start"),
+        "actual_end": row_data.get("actual_end"),
+        "description": _clean_optional_text(row_data.get("description")),
+    }
+
+
+def _has_plan_business_value(row_data: dict[str, object]) -> bool:
+    """判断 Excel 行是否包含计划业务数据。"""
+    fields = (
+        "phase_name",
+        "primary_task",
+        "secondary_task",
+        "status",
+        "duration",
+        "progress_pct",
+        "planned_start",
+        "planned_end",
+        "actual_start",
+        "actual_end",
+        "description",
+    )
+    return any(row_data.get(field_name) not in (None, "") for field_name in fields)
+
+
+def _normalize_header_text(value: object) -> str:
+    """规范化 Excel 表头文本。"""
+    if value is None:
+        return ""
+    return str(value).replace("\n", "").replace(" ", "").strip()
+
+
+def _normalize_import_status(value: object) -> str:
+    """规范化导入计划状态。"""
+    status_text = _clean_optional_text(value) or "待开始"
+    return PLAN_STATUS_IMPORT_MAP.get(status_text, status_text)
+
+
+def _export_plan_status(value: str) -> str:
+    """转换导出计划状态。"""
+    return PLAN_STATUS_EXPORT_MAP.get(value, value)
+
+
+def _parse_excel_date_value(value: object) -> date | None:
+    """解析 Excel 日期值。"""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, (int, float)):
+        try:
+            return from_excel(value).date()
+        except Exception as exc:
+            raise ValueError(f"日期序列值 {value} 无法解析") from exc
+    if isinstance(value, str):
+        normalized = value.strip().replace("/", "-").replace(".", "-")
+        if not normalized:
+            return None
+        try:
+            return date.fromisoformat(normalized)
+        except ValueError as exc:
+            raise ValueError(f"日期 {value} 格式无法解析") from exc
+
+    raise ValueError(f"日期值 {value} 类型不支持")
+
+
+def _parse_progress_value(value: object) -> int:
+    """解析 Excel 当前进度。"""
+    if value is None or value == "":
+        return 0
+    if isinstance(value, str):
+        normalized = value.strip().replace("%", "")
+        if not normalized:
+            return 0
+        number = float(normalized)
+        return _coerce_progress_pct(number)
+    if isinstance(value, (int, float)):
+        if 0 <= float(value) <= 1:
+            return _coerce_progress_pct(float(value) * 100)
+        return _coerce_progress_pct(value)
+
+    raise ValueError(f"进度值 {value} 类型不支持")
+
+
+def _coerce_progress_pct(value: object) -> int:
+    """将进度值限制在 0 到 100。"""
+    if value is None or value == "":
+        return 0
+    progress = int(round(float(value)))
+    return max(0, min(progress, 100))
+
+
+def _clean_optional_text(value: object) -> str | None:
+    """清理可选文本字段。"""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _build_plan_template_header(worksheet: Worksheet, project_name: str) -> None:
+    """生成项目开发计划模板表头。"""
+    worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=36)
+    worksheet.cell(row=1, column=1, value=f"{project_name}开发计划")
+
+    for column_index, header in enumerate(PLAN_TEMPLATE_HEADERS, start=1):
+        worksheet.cell(row=2, column=column_index, value=header)
+
+    current_year = date.today().year
+    worksheet.merge_cells(start_row=2, start_column=13, end_row=2, end_column=36)
+    worksheet.cell(row=2, column=13, value=f"{current_year}年")
+
+    month_labels = ["6月", "7月", "8月", "9月", "10月", "11月"]
+    for month_offset, month_label in enumerate(month_labels):
+        start_column = 13 + month_offset * 4
+        worksheet.merge_cells(
+            start_row=3,
+            start_column=start_column,
+            end_row=3,
+            end_column=start_column + 3,
+        )
+        worksheet.cell(row=3, column=start_column, value=month_label)
+        for week_offset in range(4):
+            worksheet.cell(row=4, column=start_column + week_offset, value=f"{week_offset + 1}w")
+
+
+def _write_plan_export_row(worksheet: Worksheet, row_index: int, plan: ProjectPlan) -> None:
+    """写入一行计划导出数据。"""
+    values = [
+        plan.phase_name,
+        plan.primary_task,
+        plan.secondary_task,
+        plan.dependency,
+        _export_plan_status(plan.status),
+        plan.duration,
+        (plan.progress_pct or 0) / 100,
+        plan.planned_start,
+        plan.planned_end,
+        plan.actual_start,
+        plan.actual_end,
+        plan.description,
+    ]
+    for column_index, value in enumerate(values, start=1):
+        worksheet.cell(row=row_index, column=column_index, value=value)
+
+    worksheet.cell(row=row_index, column=7).number_format = "0%"
+    for column_index in (8, 9, 10, 11):
+        worksheet.cell(row=row_index, column=column_index).number_format = "yyyy-mm-dd"
+
+
+def _style_plan_template(worksheet: Worksheet, max_row: int) -> None:
+    """设置项目开发计划导出样式。"""
+    worksheet.freeze_panes = "A5"
+    widths = [14, 22, 38, 18, 12, 10, 10, 14, 14, 14, 14, 24]
+    for column_index, width in enumerate(widths, start=1):
+        worksheet.column_dimensions[get_column_letter(column_index)].width = width
+    for column_index in range(13, 37):
+        worksheet.column_dimensions[get_column_letter(column_index)].width = 6
+
+    title_fill = PatternFill("solid", fgColor="D9EAF7")
+    header_fill = PatternFill("solid", fgColor="E2F0D9")
+    timeline_fill = PatternFill("solid", fgColor="FCE4D6")
+    thin_side = Side(style="thin", color="A6A6A6")
+    border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
+    worksheet.cell(row=1, column=1).font = Font(name="等线", size=18, bold=True)
+    worksheet.cell(row=1, column=1).fill = title_fill
+    worksheet.cell(row=1, column=1).alignment = Alignment(horizontal="left", vertical="center")
+    worksheet.row_dimensions[1].height = 30
+
+    for row_index in range(2, max_row + 1):
+        for column_index in range(1, 37):
+            cell = worksheet.cell(row=row_index, column=column_index)
+            cell.border = border
+            cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            if row_index == 2 and column_index <= 12:
+                cell.fill = header_fill
+                cell.font = Font(name="等线", size=9, bold=True)
+            elif row_index in (2, 3, 4) and column_index >= 13:
+                cell.fill = timeline_fill
+                cell.font = Font(name="等线", size=9, bold=True)
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 
 def list_requirements(db: Session, project_id: int) -> list[ProjectRequirement]:

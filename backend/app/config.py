@@ -22,11 +22,15 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "uploads"
     DOCUMENTS_DIR: str = "documents"
 
+    AGENT_DEFAULT_MODEL: str = "deepseek-v4-flash"
+    AGENT_DEFAULT_API_BASE_URL: str = "https://api.deepseek.com/v1"
+
     class Config:
         """环境变量读取配置。"""
 
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"
         json_parse_env_vars = True
 
 

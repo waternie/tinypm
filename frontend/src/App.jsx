@@ -5,6 +5,7 @@ import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
 
+const AgentHome = lazy(() => import('./pages/AgentHome'));
 const MemberList = lazy(() => import('./pages/members/MemberList'));
 const ProjectManagement = lazy(() => import('./pages/ProjectManagement'));
 const ProjectDetail = lazy(() => import('./pages/projects/ProjectDetail'));
@@ -29,7 +30,8 @@ const App = () => (
             </ProtectedRoute>
           )}
         >
-          <Route index element={<Navigate to="/projects" replace />} />
+          <Route index element={<Navigate to="/agent" replace />} />
+          <Route path="agent" element={<AgentHome />} />
           <Route path="projects" element={<ProjectManagement />} />
           <Route path="projects/:id" element={<ProjectDetail />} />
           <Route path="members" element={<MemberList />} />
@@ -42,7 +44,7 @@ const App = () => (
             )}
           />
         </Route>
-        <Route path="*" element={<Navigate to="/projects" replace />} />
+        <Route path="*" element={<Navigate to="/agent" replace />} />
       </Routes>
     </Suspense>
   </BrowserRouter>

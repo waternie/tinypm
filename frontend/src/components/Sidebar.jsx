@@ -1,4 +1,4 @@
-import { Kanban, LogOut, Shield, Users } from 'lucide-react';
+import { Bot, Kanban, LogOut, Shield, Users } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import LogoIcon from './LogoIcon';
 import { APP_NAME, APP_VERSION } from '../constants/app';
@@ -15,6 +15,7 @@ const Sidebar = () => {
   const initials = displayName.slice(0, 2).toUpperCase();
 
   const navItems = [
+    { path: '/agent', label: '智能助理', icon: Bot },
     { path: '/projects', label: '项目管理', icon: Kanban },
     { path: '/members', label: '成员库', icon: Users },
   ];

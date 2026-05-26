@@ -137,6 +137,11 @@ class ProjectPlan(Base):
         comment="关联项目ID",
     )
     phase_name = Column(String(256), nullable=False, comment="阶段名称")
+    primary_task = Column(String(256), nullable=True, comment="一级任务")
+    secondary_task = Column(String(256), nullable=True, comment="二级任务")
+    dependency = Column(String(256), nullable=True, comment="依赖项")
+    duration = Column(String(32), nullable=True, comment="工期")
+    progress_pct = Column(Integer, nullable=False, default=0, comment="当前进度百分比")
     description = Column(Text, nullable=True, comment="描述")
     planned_start = Column(Date, nullable=True, comment="计划开始日期")
     planned_end = Column(Date, nullable=True, comment="计划结束日期")

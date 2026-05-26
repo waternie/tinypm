@@ -28,6 +28,8 @@ services:
       INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-admin}
       INITIAL_ADMIN_DISPLAY_NAME: ${INITIAL_ADMIN_DISPLAY_NAME:-平台管理员}
+      AGENT_DEFAULT_MODEL: ${AGENT_DEFAULT_MODEL:-deepseek-v4-flash}
+      AGENT_DEFAULT_API_BASE_URL: ${AGENT_DEFAULT_API_BASE_URL:-https://api.deepseek.com/v1}
     depends_on:
       db:
         condition: service_healthy

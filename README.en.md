@@ -1,16 +1,16 @@
 # TinyPM
 
-[![Version](https://img.shields.io/badge/version-1.0.1-blue)](./README.en.md)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue)](./README.en.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 [![Open Source](https://img.shields.io/badge/Open%20Source-Yes-1f6feb)](./LICENSE)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-18-61dafb)](https://react.dev/)
 
-TinyPM is a lightweight, self-hosted project management platform built for small teams that want a clean workflow for planning, coordination, communication, and cost tracking.
+TinyPM is a lightweight, self-hosted project management platform built for small teams that want a clean workflow for planning, coordination, communication, AI-assisted project review, and cost tracking.
 
-It combines role-based access control, a reusable member library, Markdown-powered project announcements, and practical project execution modules such as milestones, plans, requirements, issues, and cost records.
+It combines role-based access control, a reusable member library, Markdown-powered project announcements, project data MCP tools, an AI assistant workspace, and practical project execution modules such as milestones, plans, requirements, issues, and cost records.
 
-Current version: `1.0.1`
+Current version: `1.1.0`
 
 - Chinese README: [README.md](./README.md)
 
@@ -24,6 +24,9 @@ Current version: `1.0.1`
 
 ## Highlights
 
+- AI assistant workspace with project-scoped sessions, skills, editable system prompts, and DeepSeek-compatible model settings
+- Project data MCP tools for agent-driven project, plan, requirement, and issue queries or updates
+- Project plan Excel import/export with phase, primary task, secondary task, dependency, duration, progress, and schedule fields
 - Role-based access with built-in `admin`, `manager`, and `member` roles
 - Member library shared across project owners, assignees, and cost record people
 - Project list with status, priority, manager, and keyword filtering
@@ -31,6 +34,34 @@ Current version: `1.0.1`
 - Milestone, plan, requirement, and issue management inside each project
 - Cost management with income/expense records, person assignment, and balance summary
 - Frontend/backend separation with one-command Docker deployment
+
+## Screenshots
+
+### AI Assistant Workspace
+
+![AI Assistant Workspace](./capture/1.png)
+
+### Project Data Agent
+
+![Project Data Agent](./capture/2.png)
+
+### Project Review Report
+
+![Project Review Report](./capture/3.png)
+
+### Single Plan Review
+
+![Single Plan Review](./capture/4.png)
+
+### Project Detail
+
+![Project Detail](./capture/5.png)
+
+### Member Library and User Management
+
+![Member Library](./capture/6.png)
+
+![User Management](./capture/7.png)
 
 ## Tech Stack
 
@@ -42,6 +73,7 @@ Current version: `1.0.1`
 - PostgreSQL 16
 - Pydantic / pydantic-settings
 - python-jose + bcrypt
+- openpyxl
 
 ### Frontend
 
@@ -51,6 +83,7 @@ Current version: `1.0.1`
 - Lucide React
 - Vite 5
 - react-markdown
+- xlsx
 
 ## Project Structure
 
@@ -58,6 +91,7 @@ Current version: `1.0.1`
 .
 ├── backend/                 # FastAPI backend
 ├── frontend/                # React frontend
+├── capture/                 # README screenshots
 ├── docker-compose.yml       # Docker Compose setup
 ├── .env.example             # Environment variable example
 ├── LICENSE                  # Open-source license

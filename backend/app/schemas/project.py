@@ -145,6 +145,11 @@ class PlanCreate(BaseModel):
     """创建计划请求体。"""
 
     phase_name: str = Field(..., min_length=1, max_length=256, description="阶段名称")
+    primary_task: str | None = Field(None, max_length=256, description="一级任务")
+    secondary_task: str | None = Field(None, max_length=256, description="二级任务")
+    dependency: str | None = Field(None, max_length=256, description="依赖项")
+    duration: str | None = Field(None, max_length=32, description="工期")
+    progress_pct: int = Field(default=0, ge=0, le=100, description="当前进度百分比")
     description: str | None = Field(None, description="描述")
     planned_start: date | None = Field(None, description="计划开始")
     planned_end: date | None = Field(None, description="计划结束")
@@ -158,6 +163,11 @@ class PlanUpdate(BaseModel):
     """更新计划请求体。"""
 
     phase_name: str | None = Field(None, min_length=1, max_length=256, description="阶段名称")
+    primary_task: str | None = Field(None, max_length=256, description="一级任务")
+    secondary_task: str | None = Field(None, max_length=256, description="二级任务")
+    dependency: str | None = Field(None, max_length=256, description="依赖项")
+    duration: str | None = Field(None, max_length=32, description="工期")
+    progress_pct: int | None = Field(None, ge=0, le=100, description="当前进度百分比")
     description: str | None = Field(None, description="描述")
     planned_start: date | None = Field(None, description="计划开始")
     planned_end: date | None = Field(None, description="计划结束")
@@ -173,6 +183,11 @@ class PlanResponse(BaseModel):
     id: int
     project_id: int
     phase_name: str
+    primary_task: str | None = None
+    secondary_task: str | None = None
+    dependency: str | None = None
+    duration: str | None = None
+    progress_pct: int = 0
     description: str | None = None
     planned_start: date | None = None
     planned_end: date | None = None
@@ -272,6 +287,15 @@ class IssueResponse(BaseModel):
         """Pydantic 配置。"""
 
         from_attributes = True
+
+
+class PlanImportResponse(BaseModel):
+    """计划导入响应体。"""
+
+    created_count: int = Field(..., description="新增记录数")
+    skipped_count: int = Field(..., description="跳过记录数")
+    errors: list[str] = Field(default_factory=list, description="导入错误")
+    plans: list[PlanResponse] = Field(default_factory=list, description="新增计划")
 
 
 class IssueImageResponse(BaseModel):
