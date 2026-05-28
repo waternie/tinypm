@@ -6,9 +6,16 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-18-61dafb)](https://react.dev/)
 
-TinyPM is a lightweight, self-hosted project management platform built for small teams that want a clean workflow for planning, coordination, communication, AI-assisted project review, and cost tracking.
+TinyPM is a self-hosted AI-native project management platform for small engineering, QA, and delivery teams.
 
-It combines role-based access control, a reusable member library, Markdown-powered project announcements, project data MCP tools, an AI assistant workspace, and practical project execution modules such as milestones, plans, requirements, issues, and cost records.
+It is not trying to become a heavy Jira clone. TinyPM turns plans, requirements, issues, costs, members, and announcements into structured project data, then exposes that data through MCP tools so an AI agent can run project reviews, plan checks, risk summaries, and weekly meeting notes.
+
+```text
+Project data
+  -> MCP tools
+  -> AI project assistant
+  -> project review / plan review / risk list / weekly summary
+```
 
 Current version: `1.1.0`
 
@@ -24,6 +31,7 @@ Current version: `1.1.0`
 
 ## Highlights
 
+- AI-native project management for small teams that want agents to work with real project data
 - AI assistant workspace with project-scoped sessions, skills, editable system prompts, and DeepSeek-compatible model settings
 - Project data MCP tools for agent-driven project, plan, requirement, and issue queries or updates
 - Project plan Excel import/export with phase, primary task, secondary task, dependency, duration, progress, and schedule fields
@@ -34,6 +42,16 @@ Current version: `1.1.0`
 - Milestone, plan, requirement, and issue management inside each project
 - Cost management with income/expense records, person assignment, and balance summary
 - Frontend/backend separation with one-command Docker deployment
+
+## 3-Minute Demo Path
+
+1. Start TinyPM with Docker Compose.
+2. Sign in with the initial administrator account.
+3. Create a project and import or enter a project plan.
+4. Open the AI assistant workspace and bind the current project.
+5. Ask the agent to produce a project review, risk list, or weekly summary.
+
+See [docs/demo.md](./docs/demo.md) for the complete demo flow and [docs/quickstart.md](./docs/quickstart.md) for setup details.
 
 ## Screenshots
 
@@ -92,6 +110,7 @@ Current version: `1.1.0`
 ├── backend/                 # FastAPI backend
 ├── frontend/                # React frontend
 ├── capture/                 # README screenshots
+├── docs/                    # Demo, architecture, and release notes
 ├── docker-compose.yml       # Docker Compose setup
 ├── .env.example             # Environment variable example
 ├── LICENSE                  # Open-source license
@@ -216,10 +235,15 @@ You only need to keep the original license and copyright notice.
 - File uploads and project document management
 - Richer cost analytics and reporting
 - Export tools and audit logs
+- More project management agent skills and MCP automation
+
+See [ROADMAP.md](./ROADMAP.md) for the detailed roadmap.
 
 ## Contributing
 
 Issues and pull requests are welcome if you want to improve the project, fix bugs, or extend features.
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) before opening larger pull requests.
 
 ## License
 

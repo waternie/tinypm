@@ -10,4 +10,4 @@ frontend/dist/
 backend/uploads/
 backend/documents/
 Rule
-docs
+docs/design_progress.md

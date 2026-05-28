@@ -6,7 +6,16 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-18-61dafb)](https://react.dev/)
 
-一个面向团队协作的独立项目管理平台，提供用户权限、成员库、项目公告、成本管理、项目计划、需求、问题与里程碑管理能力。v1.1.0 新增智能助理工作台、项目数据 MCP、项目计划 Excel 导入导出，以及基于 Agent 的项目总审、单条计划审核和项目周会摘要能力。
+TinyPM 是一个面向小型研发、测试和交付团队的 **私有化 AI-native 项目管理平台**。
+
+它不是另一个重型 Jira 替代品，而是把项目计划、需求、问题、成本、成员和公告沉淀成结构化数据，再通过 **MCP 项目数据工具** 暴露给 AI Agent，让 Agent 能做项目总审、计划审核、风险清单和周会摘要。
+
+```text
+项目数据
+  -> MCP 工具
+  -> AI 项目助理
+  -> 项目总审 / 计划审核 / 风险清单 / 周会摘要
+```
 
 当前版本：`1.1.0`
 
@@ -17,6 +26,10 @@
 
 ## 特性
 
+- AI-native 项目管理
+  - Agent 可通过 MCP 工具读取项目、计划、需求和问题
+  - 支持项目总审、当前计划审核、风险清单和周会摘要
+  - 适合小团队把项目数据交给 AI 复盘，而不是只靠口头描述
 - 智能助理
   - 默认模型：`deepseek-v4-flash`
   - 用户可在页面中自行填写 API Key
@@ -51,6 +64,16 @@
 - 部署
   - 前后端分离
   - 支持 Docker Compose 一键部署
+
+## 3 分钟体验路径
+
+1. 用 Docker Compose 启动 TinyPM。
+2. 登录默认管理员账号。
+3. 创建一个项目，导入或录入项目计划。
+4. 打开智能助理工作台，绑定当前项目。
+5. 让 Agent 生成项目总审、风险清单或周会摘要。
+
+完整演示见 [docs/demo.md](./docs/demo.md)，部署细节见 [docs/quickstart.md](./docs/quickstart.md)。
 
 ## 界面截图
 
@@ -109,6 +132,7 @@
 ├── backend/                 # FastAPI 后端
 ├── frontend/                # React 前端
 ├── capture/                 # README 截图
+├── docs/                    # 演示、架构和发布说明
 ├── docker-compose.yml       # Docker Compose 编排
 ├── .env.example             # 环境变量示例
 ├── LICENSE                  # 开源许可证
@@ -246,6 +270,19 @@ npm run dev
 - 更完整的成本统计分析
 - 更完整的导出报表与审计日志
 - 更多 Agent Skill 和项目管理自动化能力
+
+详细路线图见 [ROADMAP.md](./ROADMAP.md)。
+
+## Contributing
+
+欢迎提交 issue 和 pull request。适合优先参与的方向：
+
+- 补充项目管理 Agent Skill
+- 改进 MCP 项目数据工具
+- 增加报表、审计和导出能力
+- 补充 Docker、自托管和本地开发文档
+
+贡献说明见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 ## License
 
